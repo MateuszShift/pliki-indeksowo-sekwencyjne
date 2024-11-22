@@ -15,7 +15,7 @@ string file;
 //struktury
 struct Record {
     int key;          
-    char licensePlate[9];
+    string licensePlate;
 };
 
 struct Page{
@@ -30,8 +30,8 @@ struct IndexEntry {
 };
 
 struct Index {
-    IndexEntry entries[ENTRIES];
     int entryCount;
+    IndexEntry entries[1000];
 };
 //wyswietlanie menu
 void mainMenu(){
@@ -93,6 +93,45 @@ void readPage(const string &fileName, int pageNumber) {
 
 //przejdzmy do pisania funkcji dodania rekordu
 
+Index createEmptyIndex() {
+    Index index;
+    index.entryCount = 0; // Brak wpisów w pustym indeksie
+    std::memset(index.entries, 0, sizeof(index.entries));
+    return index;
+}
+
+Index loadIndex(){
+    string indexFileName = file + "Index.dat";
+    Index index;
+    ifstream indexFile(indexFileName, ios::binary);
+    
+    indexFile.seekg(0, std::ios::end); //ustawienie wskaźnika na koniec pliku
+    std::streamsize fileSize = indexFile.tellg(); //pobranie rozmiaru pliku
+    indexFile.seekg(0, std::ios::beg); //ustawienie wskaźnika na początek pliku
+
+    if (fileSize == 0) {
+        std::cout << "Plik indeksowy jest pusty, tworzenie pustego indeksu." << std::endl;
+        index = createEmptyIndex();
+    }
+    indexFile.read(reinterpret_cast<char *>(&index.entryCount), sizeof(index.entryCount));//odczytanie ilosci wpisow
+    
+    indexFile.read(reinterpret_cast<char *>(index.entries), index.entryCount * sizeof(IndexEntry)); //odczytanie wpisow
+    
+    
+
+    indexFile.close();
+    return index;
+}
+
+void saveIndex(Index &index) {
+    string indexFileName = file + "Index.dat";
+    ofstream indexFile(indexFileName, ios::binary | ios::out);
+    indexFile.write(reinterpret_cast<const char *>(&index.entryCount), sizeof(index.entryCount));
+    indexFile.write(reinterpret_cast<const char *>(index.entries), index.entryCount * sizeof(IndexEntry));
+
+    indexFile.close();
+}
+
 int findPage(int key, Index &index){
     
     for (int i = 0; i < index.entryCount; ++i) {
@@ -112,7 +151,7 @@ void addIndexEntry(Index &index, int key, int pageIndex){
 void savePage(Page &page, int pageNumber){
     
     string dataFileName = file + ".dat";
-    std::fstream file(dataFileName, std::ios::binary);
+    std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out); //otwarcie pliku do odczytu i zapisu w trybie binarnym
 
     if (pageNumber == -1) {
         file.seekp(0, std::ios::end);
@@ -155,19 +194,24 @@ Page loadPage(int pageNumber){
     return page;
 }
 
-int addRecord(Index &index, Record &newRecord){
+int addRecord(Record &newRecord){
     string dataFileName = file + ".dat";
     string overflowFileName = file + "Overflow.dat";
     string indexFileName = file + "Index.dat";
 
+    Index index = loadIndex();
+    bool indexFileChanged = false;
 
-    if(index.entryCount == 0){ //jesli indeks jest pusty to 
+    if(index.entryCount == 0){
         Page mainPage = createEmptyPage();
         insertNewRecord(mainPage, newRecord);
         savePage(mainPage, 0);
         addIndexEntry(index, newRecord.key, 0);
+        indexFileChanged = true;
+        if (indexFileChanged) {
+            saveIndex(index);
+        }
         return 0;
-        //readPage(dataFileName, 0);
     }
     //krok 2
     int pageIndex = findPage(newRecord.key, index);
@@ -179,9 +223,19 @@ int addRecord(Index &index, Record &newRecord){
     if(mainPage.recordCount < COEFFICIENT_OF_BLOCKING){
         insertNewRecord(mainPage, newRecord);
         savePage(mainPage, pageIndex);
+        if(newRecord.key < index.entries[pageIndex].key){
+            index.entries[pageIndex].key = newRecord.key;
+            indexFileChanged = true;
+            if (indexFileChanged) {
+                saveIndex(index);
+            }
+        }
         return 0;
     }
-    //krok 5 w ktorym sprawdzamy czy jest strona nadmiarowa
+    else{
+        //krok 5 w ktorym sprawdzamy czy jest strona nadmiarowa
+    }
+    
 
     
     
@@ -216,26 +270,12 @@ void createFiles(){
     indexFile.close();
 }
 
-void initializeEmptyIndex(Index &index){
-    index.entryCount = 0;
-}
-
-int manageProgramInput(int choice, Index index){ //tutaj dopisac obsluge wyboru w sensei tworzenie plikow albo odpowiednie parsowanie pliku testowego 
+int manageProgramInput(int choice){ //tutaj dopisac obsluge wyboru w sensei tworzenie plikow albo odpowiednie parsowanie pliku testowego 
     
     if(choice == 1){
         cout << "Podaj nazwe pliku: ";
         cin >> file;
         createFiles();
-        string indexFileName = file + "Index.dat";
-        ifstream indexFile(indexFileName, ios::binary);
-        if (indexFile.is_open()) {
-            indexFile.read(reinterpret_cast<char *>(&index), sizeof(Index));
-            indexFile.close();
-        } else {
-            initializeEmptyIndex(index); // Zainicjalizuj pusty indeks
-        }
-
-        
 
         //wczytaj dane z pliku testowego
 
@@ -244,7 +284,6 @@ int manageProgramInput(int choice, Index index){ //tutaj dopisac obsluge wyboru 
         cout << "Podaj nazwe pliku: ";
         cin >> file;
         createFiles();
-        initializeEmptyIndex(index);
         return 2;
     }else if(choice == 3){ //wyjdz z programu   
         return 3;
@@ -261,7 +300,7 @@ Record getNewRecordData(){
     return newRecord;
 }
 
-void manageChoice(Index &index){ //uzupelniac o wywolania funkcji
+void manageChoice(){ //uzupelniac o wywolania funkcji
     int choice;
     Record newRecord;
     
@@ -276,7 +315,7 @@ void manageChoice(Index &index){ //uzupelniac o wywolania funkcji
             case 2:
                 //czesc dodawania rekordu
                 newRecord = getNewRecordData();
-                addRecord(index, newRecord);
+                addRecord(newRecord);
                 break;
             case 3:
                 //usun rekord
@@ -305,14 +344,18 @@ void manageChoice(Index &index){ //uzupelniac o wywolania funkcji
 
 int main(){
     int choicePath;
-    Index index; //struktura indeksu
     choosePath(); //wybór ścieżki programu
     cout << "Wybierz ścieżkę: ";
     cin >> choicePath;
-    if(manageProgramInput(choicePath, index) == 3){ //dodanie rzeczy z pliku lub przejscie do pustego programu tylko tworząc pliki 
+    if(manageProgramInput(choicePath) == 3){ //dodanie rzeczy z pliku lub przejscie do pustego programu tylko tworząc pliki 
         return 0;
     }
-    manageChoice(index);
+    manageChoice();
 
     return 0;
 }
+
+// DOKONCZYC PRZEPISYWANIE OBSLUGI PLIKU INDEKSOWEGO Z RANA
+
+//na konsy zapytac sie o: czy tworzymy strukture indeksu w pamieci czy zapisujemy na dysku?
+//
