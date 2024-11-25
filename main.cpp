@@ -9,19 +9,20 @@ using namespace std;
 #define ENTRIES 1000
 
 string file;
-
-
+int totalRecords = 0;
+int totalOverflowRecords = 0;
+float alpha = 0.5;
+int recordCount = 0;
 
 //struktury
 struct Record {
     int key;          
     char licensePlate[9];
+    int overflowPointer = -1; 
 };
 
 struct Page{
-    int recordCount;
     Record records[COEFFICIENT_OF_BLOCKING];
-    int overFlowPointer;
 };
 
 struct IndexEntry {
@@ -31,7 +32,7 @@ struct IndexEntry {
 
 struct Index {
     int entryCount;
-    IndexEntry entries[1000];
+    IndexEntry entries[10000];
 };
 //wyswietlanie menu
 void mainMenu(){
@@ -53,27 +54,6 @@ void choosePath(){
     cout << "3.Zakończ program" << endl;
     cout << "===============================================" << endl;
 }
-
-//funkcje//
-//dodawanie rekordu//
-
-//4. jesli na stronie jest miejsce to dodaj rekord
-    //wstawienie rekordu na odpowiednie miejsce na stronie
-    //zapisanie strony w pliku
-    //wyswietlenie informacji o dodaniu rekordu
-//5. obsluga przepelnienia
-    //jezeli overflow to -1 to znaczy ze nie ma strony nadmiarowej
-        //tworzenie strony nadmiarowej pustej 
-        //dodanie rekordu na stronie nadmiarowej
-        //zapisanie strony nadmiarowej w pliku
-        //zaktualizuj wskaznik przepelnienia
-    //jezeli juz istnieje to dodaj do strony nadmiarowej
-//6.zapisanie zaktualizowanej strony glownej
-//7. sprawdzenie czy potrzebna jest reorganizacja
-    //jesli tak to reorganizacja
-
-//przejdzmy do pisania funkcji dodania rekordu
-
 Index createEmptyIndex() {
     Index index;
     index.entryCount = 0;
@@ -91,7 +71,6 @@ Index loadIndex(){
     indexFile.seekg(0, std::ios::beg);
 
     if (fileSize == 0) {
-        //std::cout << "Plik indeksowy jest pusty, tworzenie pustego indeksu." << std::endl;
         index = createEmptyIndex();
     }
     indexFile.read(reinterpret_cast<char *>(&index.entryCount), sizeof(index.entryCount));
@@ -113,15 +92,72 @@ void saveIndex(Index &index) {
     indexFile.close();
 }
 
-int findPage(int key, Index &index){
-    
-    for (int i = 0; i < index.entryCount; ++i) {
-        
-        if (i == index.entryCount - 1 || key < index.entries[i + 1].key) {
-            return index.entries[i].pagePointer;
+int countRecords(Page &page){
+    int count = 0;
+    for (int i = 0; i < COEFFICIENT_OF_BLOCKING; ++i) {
+        if (page.records[i].key != 0) {
+            count++;
         }
     }
+    return count;
 }
+
+Page loadPage(int pageNumber){
+    string dataFileName = file + ".dat";
+    Page page;
+    ifstream file(dataFileName, ios::binary);
+    file.seekg(pageNumber * sizeof(Page), ios::beg); 
+    file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
+    file.close();
+    recordCount = 0;
+    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
+        if(page.records[i].key != 0){
+            recordCount++;
+        }
+    }
+    return page;
+}
+
+int findPage(int key, Index &index, Page &currentPage, bool &hasSpaceOnNextPage, bool &betweenPages) {
+    hasSpaceOnNextPage = false;
+    betweenPages = false;
+
+    for (int i = 0; i < index.entryCount; ++i) {
+        if (i == index.entryCount - 1 || key < index.entries[i + 1].key) {
+            int currentPagePointer = index.entries[i].pagePointer;
+
+            // Wczytaj bieżącą stronę
+            currentPage = loadPage(currentPagePointer);
+
+            // Sprawdzenie następnej strony
+            if (i < index.entryCount - 1) { // Jeśli istnieje następna strona
+                int nextPagePointer = index.entries[i + 1].pagePointer;
+                Page nextPage = loadPage(nextPagePointer);
+
+                if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) {
+                    if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
+                        hasSpaceOnNextPage = true;
+                        currentPage = nextPage;
+                        return nextPagePointer;
+                    } else {
+                        betweenPages = true;
+                        return currentPagePointer; // Wróć do bieżącej strony
+                    }
+                }
+            }
+
+            return currentPagePointer;
+        }
+    }
+
+    // Jeśli klucz jest większy niż wszystkie w indeksie
+    currentPage = loadPage(index.entries[index.entryCount - 1].pagePointer);
+    return index.entries[index.entryCount - 1].pagePointer;
+}
+
+
+
+
 
 void addIndexEntry(Index &index, int key, int pageIndex){
     index.entries[index.entryCount].key = key;
@@ -129,49 +165,28 @@ void addIndexEntry(Index &index, int key, int pageIndex){
     index.entryCount++;
 }
 
-void savePage(Page &page, int pageNumber){
-    
+int savePage(Page &page, int pageNumber){
     string dataFileName = file + ".dat";
-    std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out); //otwarcie pliku do odczytu i zapisu w trybie binarnym
+    std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out);
 
     if (pageNumber == -1) {
-        file.seekp(0, std::ios::end);
+        file.seekp(0, std::ios::end); // Przesuń wskaźnik na koniec pliku
+        file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
+        int newPageNumber = (file.tellp() / sizeof(Page)) - 1; // Oblicz nowy numer strony
+        file.close();
+        return newPageNumber;
     } else {
-        file.seekp(pageNumber * sizeof(Page), std::ios::beg);
+        file.seekp(pageNumber * sizeof(Page), std::ios::beg); // Przesuń wskaźnik na konkretną stronę
+        file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
+        file.close();
+        return pageNumber; // Zwraca istniejący numer strony
     }
-
-    file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
-    
-    file.close();
-
 }
 
-void insertNewRecord(Page &page, Record &newRecord){
-    int position = page.recordCount;
-    while(position > 0 && page.records[position - 1].key > newRecord.key){
-        page.records[position] = page.records[position - 1];
-        position--;
-    }
-    page.records[position] = newRecord;
-    page.recordCount++;
-}
 
 Page createEmptyPage(){
     Page page;
     memset(&page,0,sizeof(Page));
-    page.recordCount = 0;
-    page.overFlowPointer = -1;
-
-    return page;
-}
-
-Page loadPage(int pageNumber){
-    string dataFileName = file + ".dat";
-    Page page;
-    ifstream file(dataFileName, ios::binary);
-    file.seekg(pageNumber * sizeof(Page), ios::beg);
-    file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
-    file.close();
     return page;
 }
 
@@ -181,7 +196,7 @@ int saveOverflowPage(Page &page, int pageNumber){
     int pageIndex;
     if (pageNumber == -1) {
         file.seekp(0, std::ios::end);
-        pageIndex = file.tellp() / sizeof(Page);
+        pageIndex = file.tellp() / sizeof(Page);  
     } else {
         file.seekp(pageNumber * sizeof(Page), std::ios::beg);
         pageIndex = pageNumber;
@@ -191,109 +206,133 @@ int saveOverflowPage(Page &page, int pageNumber){
     return pageIndex;
 }
 
-Page loadOverflowPage(int overflowPointer){
-    string overflowFileName = file + "Overflow.dat";
-    Page page;
-    ifstream file(overflowFileName, ios::binary);
-    file.seekg(overflowPointer * sizeof(Page), ios::beg);
-    file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
+Record loadRecordFromFile(int currentIndex){
+    string dataFileName = file + ".dat";
+    ifstream file(dataFileName, ios::binary);
+    Record record;
+    file.seekg(currentIndex * sizeof(Record), ios::beg);
+    file.read(reinterpret_cast<char *>(&record), sizeof(Record));
     file.close();
-    return page;
+    return record;
 }
 
-int countRecordsInOverflow(int overflowPointer){
-    Page page = loadOverflowPage(overflowPointer);
-    return page.recordCount;
+Record loadOverflowRecord(int currentIndex){
+    return loadRecordFromFile(currentIndex);
 }
 
-bool checkIfKeyAlreadyExists(Record &newRecord){
-    Index index = loadIndex();
-    for (int i = 0; i < index.entryCount; ++i) {
-        Page page = loadPage(index.entries[i].pagePointer);
-        for(int j = 0; j < page.recordCount; ++j){
-            if(page.records[j].key == newRecord.key){
-                return true;
-            }
+Record createDummyRecord(){
+    Record dummyRecord;
+    dummyRecord.key = -1;
+    char licensePlate[9] = "DUMMMMMY";
+    strcpy(dummyRecord.licensePlate, licensePlate);
+    dummyRecord.licensePlate[8] = '\0';
+    dummyRecord.overflowPointer = -1;
+    return dummyRecord;
+}
+
+bool isRecordUnique(int key, Page page){
+    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){//spr dla glownej strony
+        if(page.records[i].key == key){
+            return true;
         }
-        int overflowPointer = page.overFlowPointer;
-        while(overflowPointer != -1){
-            Page overflowPage = loadOverflowPage(overflowPointer);
-            for(int j = 0; j < overflowPage.recordCount; ++j){
-                if(overflowPage.records[j].key == newRecord.key){
+    }
+    //spr dla nadmiarow 
+    int indexTemp = -1;
+    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
+        if(page.records[i].overflowPointer != -1 && page.records[i].overflowPointer != 0){//jezeli bledy to sprawdzic warunek z 0
+            indexTemp = page.records[i].overflowPointer;
+            while(indexTemp != -1){
+                Record overflowRecord = loadOverflowRecord(indexTemp);
+                if(overflowRecord.key == key){
                     return true;
                 }
+                indexTemp = overflowRecord.overflowPointer;
             }
-            overflowPointer = overflowPage.overFlowPointer;
+            
         }
     }
+    return false;
+    
 
 }
 
-int addRecord(Record &newRecord){
+int insertNewRecordOnPage(Page &page, Record &newRecord){
+    for(int i = COEFFICIENT_OF_BLOCKING - 1; i >= 0; i--){
+        if(i==0 || (newRecord.key > page.records[i-1].key && page.records[i-1].key != 0)){
+            page.records[i] = newRecord;
+            return 0;
+        }else{
+            page.records[i] = page.records[i-1];
+        }
+    }
+}
 
-    if(checkIfKeyAlreadyExists(newRecord)){
-        cout << "Rekord o podanym kluczu juz istnieje" << endl;
-        return 1;
+
+int addRecord(Record &newRecord) {
+    // KROK 0: Wczytanie indeksu
+    Index index = loadIndex();
+    bool indexModified = false;
+
+    // KROK 1: Dodanie pierwszego rekordu wraz z dummy
+    if (index.entryCount == 0) {
+        Page page = createEmptyPage();
+        Record dummyRecord = createDummyRecord();
+        page.records[0] = dummyRecord;
+        page.records[1] = newRecord;
+        page.records[1].overflowPointer = -1;
+        savePage(page, 0);
+        addIndexEntry(index, newRecord.key, 0);
+        saveIndex(index);
+        totalRecords += 2;
+        return 0;
     }
 
-    Index index = loadIndex();
-    bool indexFileChanged = false;
+    // KROK 2: Znalezienie odpowiedniej strony głównej
+    bool hasSpaceOnNextPage = false;
+    bool betweenPages = false;
+    Page currentPage;
+    int pageIndex = findPage(newRecord.key, index, currentPage, hasSpaceOnNextPage, betweenPages);
 
-    if(index.entryCount == 0){
-        Page mainPage = createEmptyPage();
-        insertNewRecord(mainPage, newRecord);
-        savePage(mainPage, 0);
-        addIndexEntry(index, newRecord.key, 0);
-        indexFileChanged = true;
-        if (indexFileChanged) {
+    // KROK 3: Sprawdzenie unikalności rekordu
+    if (isRecordUnique(newRecord.key, currentPage)) {
+        cout << "Rekord o podanym kluczu już istnieje!!!" << endl;
+        return 0;
+    }
+
+    // KROK 4: Dodanie rekordu na bieżącą stronę, jeśli jest miejsce
+    if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
+        insertNewRecordOnPage(currentPage, newRecord);
+        savePage(currentPage, pageIndex);
+
+        // Aktualizacja indeksu
+        if (newRecord.key < index.entries[pageIndex].key) {
+            index.entries[pageIndex].key = newRecord.key;
+            indexModified = true;
+        }
+
+        if (indexModified) {
             saveIndex(index);
         }
-        return 0;
-    }
-    //krok 2
-    int pageIndex = findPage(newRecord.key, index);
 
-    //krok 3
-    Page mainPage = loadPage(pageIndex);
-    
-    //krok 4
-    if(mainPage.recordCount < COEFFICIENT_OF_BLOCKING){
-        insertNewRecord(mainPage, newRecord);
-        savePage(mainPage, pageIndex);
-        if(newRecord.key < index.entries[pageIndex].key){
-            index.entries[pageIndex].key = newRecord.key;
-            indexFileChanged = true;
-            if (indexFileChanged) {
-                saveIndex(index);
-            }
-        }
+        totalRecords++;
         return 0;
     }
-    //krok 5
-    else{
-        Page overflowPage;
-        if(mainPage.overFlowPointer == -1){
-            overflowPage = createEmptyPage();
-            insertNewRecord(overflowPage, newRecord);  
-            int overflowPageIndex = saveOverflowPage(overflowPage, -1);
-            mainPage.overFlowPointer = overflowPageIndex;
-            savePage(mainPage, pageIndex);
-        }
-        else{
-            overflowPage = loadOverflowPage(mainPage.overFlowPointer);
-            insertNewRecord(overflowPage, newRecord);
-            saveOverflowPage(overflowPage, mainPage.overFlowPointer);
-        }
-    }
-    //krok 6
-    if(countRecordsInOverflow(mainPage.overFlowPointer) >= COEFFICIENT_OF_BLOCKING/2){
-        //reorganize();
-        //indexFileChanged = true;
-        cout << "Reorganizacja" << endl;
-    }
-    if (indexFileChanged) {
+
+    // KROK 5: Obsługa pełnej strony głównej
+    if (!betweenPages && currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key < newRecord.key && !hasSpaceOnNextPage) {
+        Page newPage = createEmptyPage();
+        insertNewRecordOnPage(newPage, newRecord);
+        int newPageIndex = savePage(newPage, -1);
+        addIndexEntry(index, newRecord.key, newPageIndex);
         saveIndex(index);
+        totalRecords++;
+        return 0;
     }
+
+    // KROK 6: Obsługa dodania do strony nadmiarowej
+    cout << "Tworzenie strony nadmiarowej" << endl;
+    
+
     return 0;
 }
 
@@ -303,48 +342,11 @@ int addRecord(Record &newRecord){
 
 //wyswietlanie rekordow
 
-void showDataFile(){
-    string dataFileName = file + ".dat";
-    ifstream file(dataFileName, ios::binary);
-    Page page;
-    int i = 0;
-    while(file.read(reinterpret_cast<char *>(&page), sizeof(Page))){
-        cout << "Strona nr " << i << endl;
-        cout << "Liczba rekordów: " << page.recordCount << endl;
-        for(int j = 0; j < page.recordCount; ++j){
-            cout << "Klucz: " << page.records[j].key << " Numer rejestracyjny: " << page.records[j].licensePlate << endl;
-        }
-        i++;
-    }
-    file.close();   
-}
+//wyswietlanie pliku nadmiarowego
 
 //wyswietlanie indeksow
 
-void showIndexFile(){
-    Index index = loadIndex();
-    cout << "Plik indeksowy wygląda następująco:" << endl;
-    for (int i = 0; i < index.entryCount; ++i) {
-        cout << "Klucz: " << index.entries[i].key << " Strona: " << index.entries[i].pagePointer << endl;
-    }
-}
-//wyswietlanie pliku nadmiarowego
 
-void showOverflowFile(){
-    string overflowFileName = file + "Overflow.dat";
-    ifstream file(overflowFileName, ios::binary);
-    Page page;
-    int i = 0;
-    while(file.read(reinterpret_cast<char *>(&page), sizeof(Page))){
-        cout << "Strona nadmiarowa nr " << i << endl;
-        cout << "Liczba rekordów: " << page.recordCount << endl;
-        for(int j = 0; j < page.recordCount; ++j){
-            cout << "Klucz: " << page.records[j].key << " Numer rejestracyjny: " << page.records[j].licensePlate << endl;
-        }
-        i++;
-    }
-    file.close();
-}
 
 //tworzenie plikow
 void createFiles(){
@@ -417,15 +419,15 @@ void manageChoice(){ //uzupelniac o wywolania funkcji
                 break;
             case 5:
                 //wyswietl wszystkie rekordy
-                showDataFile();
+                //showDataFile();
                 break;
             case 6:
                 //wyswietl indeksy plikow
-                showIndexFile();
+                //showIndexFile();
                 break;
             case 7:
                 //wyswietl plik nadmiarowy
-                showOverflowFile();
+                //showOverflowFile();
                 break;
             case 8:
                 //zakoncz program
@@ -451,7 +453,5 @@ int main(){
 }
 
 
-//na konsy zapytac sie o: czy tworzymy strukture indeksu w pamieci czy zapisujemy na dysku i z dysku odczyt (pewnie druga opcja)?
-//jak obslugiwac overflow czy ma to byc podzial na strony czy caly plik wspolny dla wszystkich rekordow?
-//jak usprawnic sprawdzanie czy klucz juz istnieje? powiedziec co mam i zapytac sie czy moze jakas tablica albo cos takiego?
-//
+//na 26.11
+
