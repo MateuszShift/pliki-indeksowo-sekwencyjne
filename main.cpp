@@ -5,8 +5,9 @@
 #include <ostream>
 using namespace std;
 
-#define COEFFICIENT_OF_BLOCKING 4
+#define COEFFICIENT_OF_BLOCKING 2
 #define ENTRIES 1000
+#define MAX_INDEX_BLOCK_RECORDS 2
 
 string file;
 int totalRecords = 0;
@@ -32,7 +33,7 @@ struct IndexEntry {
 
 struct Index {
     int entryCount;
-    IndexEntry entries[10000];
+    IndexEntry entries[MAX_INDEX_BLOCK_RECORDS];
 };
 //wyswietlanie menu
 void mainMenu(){
@@ -57,40 +58,52 @@ void choosePath(){
 Index createEmptyIndex() {
     Index index;
     index.entryCount = 0;
-    std::memset(index.entries, 0, sizeof(index.entries));
+    memset(&index.entries, 0, sizeof(index.entries));
     return index;
 }
 
-Index loadIndex(){
-    string indexFileName = file + "Index.dat";
-    Index index;
-    ifstream indexFile(indexFileName, ios::binary);
-    
-    indexFile.seekg(0, std::ios::end);
-    std::streamsize fileSize = indexFile.tellg();
-    indexFile.seekg(0, std::ios::beg);
-
-    if (fileSize == 0) {
-        index = createEmptyIndex();
+int findIndexEntry(Index &index, int pagePointer) {
+    for (int i = 0; i < index.entryCount; ++i) {
+        if (index.entries[i].pagePointer == pagePointer) {
+            return i; // Zwracamy indeks wpisu w bloku indeksowym
+        }
     }
-    indexFile.read(reinterpret_cast<char *>(&index.entryCount), sizeof(index.entryCount));
-    
-    indexFile.read(reinterpret_cast<char *>(index.entries), index.entryCount * sizeof(IndexEntry));
-    
-    
 
+    // Jeśli nie znaleziono pasującego wpisu
+    throw runtime_error("Nie znaleziono wpisu w indeksie dla podanej strony.");
+}
+
+Index loadIndex(int blockIndex) {
+    string indexFileName = file + "Index.dat";
+    ifstream indexFile(indexFileName, ios::binary);
+
+    indexFile.seekg(blockIndex * sizeof(Index), ios::beg);
+    Index index;
+    indexFile.read(reinterpret_cast<char *>(&index), sizeof(Index));
     indexFile.close();
+
     return index;
 }
 
-void saveIndex(Index &index) {
-    string indexFileName = file + "Index.dat";
-    ofstream indexFile(indexFileName, ios::binary | ios::out);
-    indexFile.write(reinterpret_cast<const char *>(&index.entryCount), sizeof(index.entryCount));
-    indexFile.write(reinterpret_cast<const char *>(index.entries), index.entryCount * sizeof(IndexEntry));
 
-    indexFile.close();
+int saveIndex(Index &index, int blockIndex) {
+    string indexFileName = file + "Index.dat";
+    fstream indexFile(indexFileName, ios::binary | ios::in | ios::out);
+
+    if (blockIndex == -1) {
+        indexFile.seekp(0, ios::end);
+        int newBlockIndex = indexFile.tellp() / sizeof(Index);
+        indexFile.write(reinterpret_cast<const char *>(&index), sizeof(Index));
+        indexFile.close();
+        return newBlockIndex;
+    } else {
+        indexFile.seekp(blockIndex * sizeof(Index), ios::beg);
+        indexFile.write(reinterpret_cast<const char *>(&index), sizeof(Index));
+        indexFile.close();
+        return blockIndex;
+    }
 }
+
 
 int countRecords(Page &page){
     int count = 0;
@@ -118,49 +131,34 @@ Page loadPage(int pageNumber){
     return page;
 }
 
-int findPage(int key, Index &index, Page &currentPage, bool &hasSpaceOnNextPage, bool &betweenPages) {
-    hasSpaceOnNextPage = false;
-    betweenPages = false;
-
-    for (int i = 0; i < index.entryCount; ++i) {
-        if (i == index.entryCount - 1 || key < index.entries[i + 1].key) {
-            int currentPagePointer = index.entries[i].pagePointer;
-
-            currentPage = loadPage(currentPagePointer);
-
-            if (i < index.entryCount - 1) { //jeśli istnieje następna strona
-                int nextPagePointer = index.entries[i + 1].pagePointer;
-                Page nextPage = loadPage(nextPagePointer);
-
-                if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) { //jeśli klucz jest pomiędzy stronami
-                    if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
-                        hasSpaceOnNextPage = true;
-                        currentPage = nextPage;
-                        return nextPagePointer;
-                    } else {
-                        betweenPages = true;
-                        return currentPagePointer; //wróć do bieżącej strony
-                    }
-                }
-            }
-
-            return currentPagePointer;
-        }
+int totalIndexBlocks() {
+    string indexFileName = file + "Index.dat";
+    std::ifstream indexFile(indexFileName, std::ios::binary | std::ios::ate); // Otwórz plik i przejdź na koniec
+    if (!indexFile.is_open()) {
+        return 0; // Jeśli plik nie istnieje lub nie można go otworzyć
     }
 
-    //jeśli klucz jest większy niż wszystkie w indeksie
-    currentPage = loadPage(index.entries[index.entryCount - 1].pagePointer);
-    return index.entries[index.entryCount - 1].pagePointer;
+    std::streamsize fileSize = indexFile.tellg(); // Pobierz rozmiar pliku
+    indexFile.close();
+
+    // Oblicz liczbę bloków na podstawie rozmiaru pliku i wielkości jednego bloku
+    return fileSize / sizeof(Index);
 }
 
 
-
-
-
-void addIndexEntry(Index &index, int key, int pageIndex){
+void addIndexEntry(Index &index, int key, int pagePointer) {
     index.entries[index.entryCount].key = key;
-    index.entries[index.entryCount].pagePointer = pageIndex;
+    index.entries[index.entryCount].pagePointer = pagePointer;
     index.entryCount++;
+}
+
+int findIndexEntryIndex(Index &index, int pageIndex) {
+    for (int i = 0; i < index.entryCount; ++i) {
+        if (index.entries[i].pagePointer == pageIndex) {
+            return i; // Zwraca indeks odnośnika do strony w bloku indeksowym
+        }
+    }
+    return -1; // Jeśli nie znaleziono, co w praktyce nie powinno się zdarzyć
 }
 
 int savePage(Page &page, int pageNumber){
@@ -265,71 +263,132 @@ int insertNewRecordOnPage(Page &page, Record &newRecord){
     }
 }
 
+int findPage(int key, Index &currentIndex, Page &currentPage, int &currentIndexBlock, bool &hasSpaceOnNextPage, bool &betweenPages) {
+    hasSpaceOnNextPage = false;
+    betweenPages = false;
+
+    while (true) {
+        // Iteracja przez wpisy w bieżącym bloku indeksowym
+        for (int i = 0; i < currentIndex.entryCount; ++i) {
+            int currentPagePointer = currentIndex.entries[i].pagePointer;
+            currentPage = loadPage(currentPagePointer);
+
+            // Jeśli to ostatni wpis w bloku lub klucz jest mniejszy od następnego klucza
+            if (i == currentIndex.entryCount - 1 || key < currentIndex.entries[i + 1].key) {
+                // Sprawdź, czy obecna strona ma miejsce
+                if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
+                    return currentPagePointer;
+                }
+
+                // Sprawdź, czy klucz należy pomiędzy stronami
+                if (i < currentIndex.entryCount - 1) {
+                    int nextPagePointer = currentIndex.entries[i + 1].pagePointer;
+                    Page nextPage = loadPage(nextPagePointer);
+
+                    if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) {
+                        if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
+                            hasSpaceOnNextPage = true;
+                            currentPage = nextPage;
+                            return nextPagePointer;
+                        } else {
+                            betweenPages = true;
+                            return currentPagePointer;
+                        }
+                    }
+                }
+
+                //return currentPagePointer;
+            }
+        }
+
+        // Jeśli klucz jest większy niż wszystkie w bieżącym bloku indeksowym
+        if (currentIndexBlock < totalIndexBlocks() - 1) {
+            ++currentIndexBlock;
+            currentIndex = loadIndex(currentIndexBlock);
+        } else {
+            // Ostatni wpis w indeksie
+            currentPage = loadPage(currentIndex.entries[currentIndex.entryCount - 1].pagePointer);
+            return currentIndex.entries[currentIndex.entryCount - 1].pagePointer;
+        }
+    }
+}
+
 
 int addRecord(Record &newRecord) {
-    // KROK 0
-    Index index = loadIndex();
+    int currentIndexBlock = 0;
+    
     bool indexModified = false;
 
-    // KROK 1
-    if (index.entryCount == 0) {
+    // KROK 1: Dodanie pierwszego rekordu i dummy
+    if (totalRecords == 0) {
         Page page = createEmptyPage();
         Record dummyRecord = createDummyRecord();
         page.records[0] = dummyRecord;
         page.records[1] = newRecord;
         page.records[1].overflowPointer = -1;
         savePage(page, 0);
-        addIndexEntry(index, newRecord.key, 0);
-        saveIndex(index);
+        Index currentIndex = createEmptyIndex();
+        addIndexEntry(currentIndex, newRecord.key, 0);
+        saveIndex(currentIndex, currentIndexBlock);
         totalRecords += 2;
         return 0;
     }
-
-    // KROK 2
+    Index currentIndex = loadIndex(currentIndexBlock);
+    // KROK 2: Znalezienie odpowiedniej strony
     bool hasSpaceOnNextPage = false;
     bool betweenPages = false;
     Page currentPage;
-    int pageIndex = findPage(newRecord.key, index, currentPage, hasSpaceOnNextPage, betweenPages);
+    int pageIndex = findPage(newRecord.key, currentIndex, currentPage, currentIndexBlock, hasSpaceOnNextPage, betweenPages);
 
-    // KROK 3
+    // KROK 3: Sprawdzenie unikalności
     if (isRecordUnique(newRecord.key, currentPage)) {
         cout << "Rekord o podanym kluczu już istnieje!!!" << endl;
         return 0;
     }
 
-    // KROK 4
+    // KROK 4: Dodanie rekordu na istniejącą stronę
     if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
         insertNewRecordOnPage(currentPage, newRecord);
         savePage(currentPage, pageIndex);
-        if (newRecord.key < index.entries[pageIndex].key) {
-            index.entries[pageIndex].key = newRecord.key;
-            indexModified = true;
-        }
-        if (indexModified) {
-            saveIndex(index);
+
+        // Aktualizacja indeksu, jeśli trzeba
+        int indexEntryIndex = findIndexEntryIndex(currentIndex, pageIndex);
+        if (newRecord.key < currentIndex.entries[indexEntryIndex].key) {
+            currentIndex.entries[indexEntryIndex].key = newRecord.key;
+            saveIndex(currentIndex, currentIndexBlock);
         }
 
         totalRecords++;
         return 0;
     }
 
-    // KROK 5
-    if (!betweenPages && currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key < newRecord.key && !hasSpaceOnNextPage) {
+    // KROK 5: Dodanie nowej strony
+    if (!betweenPages && currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key < newRecord.key) {
         Page newPage = createEmptyPage();
         insertNewRecordOnPage(newPage, newRecord);
         int newPageIndex = savePage(newPage, -1);
-        addIndexEntry(index, newRecord.key, newPageIndex);
-        saveIndex(index);
+
+        // Dodaj nowy wpis do indeksu
+        if (currentIndex.entryCount < MAX_INDEX_BLOCK_RECORDS) {
+            addIndexEntry(currentIndex, newRecord.key, newPageIndex);
+            saveIndex(currentIndex, currentIndexBlock);
+        } else {
+            Index newIndexBlock = createEmptyIndex();
+            addIndexEntry(newIndexBlock, newRecord.key, newPageIndex);
+            saveIndex(newIndexBlock, ++currentIndexBlock);
+        }
+
         totalRecords++;
         return 0;
     }
 
-    // KROK 6
-    cout << "Tworzenie strony nadmiarowej" << endl;
-    
-
+    // KROK 6: Dodanie do przepełnienia
+    cout << "Tworzenie strony nadmiarowej..." << endl;
+    //pamietac o dosc newralgicznym momencie gdy strona 0:-1,2,3,4 str 1: 5,6,7,8 |koniec bloku| str 2: 10,11,12,13 i dodajemy 9 to wtedy przeskoczy juz do str 2 i na nią bedzie wskazywal wiec to bedzie moment gdy trzeba to bedzie obsluzyc
+    //wykryjemy to poprzez to ze to jest kolejny blok indeksowy a jego indeks to 0 w tablicy indeksow na danym bloku i wtedy trzeba wczytac poprzedni blok i 
     return 0;
 }
+
 
 //usuwanie rekordu
 
