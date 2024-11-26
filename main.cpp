@@ -126,22 +126,20 @@ int findPage(int key, Index &index, Page &currentPage, bool &hasSpaceOnNextPage,
         if (i == index.entryCount - 1 || key < index.entries[i + 1].key) {
             int currentPagePointer = index.entries[i].pagePointer;
 
-            // Wczytaj bieżącą stronę
             currentPage = loadPage(currentPagePointer);
 
-            // Sprawdzenie następnej strony
-            if (i < index.entryCount - 1) { // Jeśli istnieje następna strona
+            if (i < index.entryCount - 1) { //jeśli istnieje następna strona
                 int nextPagePointer = index.entries[i + 1].pagePointer;
                 Page nextPage = loadPage(nextPagePointer);
 
-                if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) {
+                if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) { //jeśli klucz jest pomiędzy stronami
                     if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
                         hasSpaceOnNextPage = true;
                         currentPage = nextPage;
                         return nextPagePointer;
                     } else {
                         betweenPages = true;
-                        return currentPagePointer; // Wróć do bieżącej strony
+                        return currentPagePointer; //wróć do bieżącej strony
                     }
                 }
             }
@@ -150,7 +148,7 @@ int findPage(int key, Index &index, Page &currentPage, bool &hasSpaceOnNextPage,
         }
     }
 
-    // Jeśli klucz jest większy niż wszystkie w indeksie
+    //jeśli klucz jest większy niż wszystkie w indeksie
     currentPage = loadPage(index.entries[index.entryCount - 1].pagePointer);
     return index.entries[index.entryCount - 1].pagePointer;
 }
@@ -269,11 +267,11 @@ int insertNewRecordOnPage(Page &page, Record &newRecord){
 
 
 int addRecord(Record &newRecord) {
-    // KROK 0: Wczytanie indeksu
+    // KROK 0
     Index index = loadIndex();
     bool indexModified = false;
 
-    // KROK 1: Dodanie pierwszego rekordu wraz z dummy
+    // KROK 1
     if (index.entryCount == 0) {
         Page page = createEmptyPage();
         Record dummyRecord = createDummyRecord();
@@ -287,29 +285,26 @@ int addRecord(Record &newRecord) {
         return 0;
     }
 
-    // KROK 2: Znalezienie odpowiedniej strony głównej
+    // KROK 2
     bool hasSpaceOnNextPage = false;
     bool betweenPages = false;
     Page currentPage;
     int pageIndex = findPage(newRecord.key, index, currentPage, hasSpaceOnNextPage, betweenPages);
 
-    // KROK 3: Sprawdzenie unikalności rekordu
+    // KROK 3
     if (isRecordUnique(newRecord.key, currentPage)) {
         cout << "Rekord o podanym kluczu już istnieje!!!" << endl;
         return 0;
     }
 
-    // KROK 4: Dodanie rekordu na bieżącą stronę, jeśli jest miejsce
+    // KROK 4
     if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
         insertNewRecordOnPage(currentPage, newRecord);
         savePage(currentPage, pageIndex);
-
-        // Aktualizacja indeksu
         if (newRecord.key < index.entries[pageIndex].key) {
             index.entries[pageIndex].key = newRecord.key;
             indexModified = true;
         }
-
         if (indexModified) {
             saveIndex(index);
         }
@@ -318,7 +313,7 @@ int addRecord(Record &newRecord) {
         return 0;
     }
 
-    // KROK 5: Obsługa pełnej strony głównej
+    // KROK 5
     if (!betweenPages && currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key < newRecord.key && !hasSpaceOnNextPage) {
         Page newPage = createEmptyPage();
         insertNewRecordOnPage(newPage, newRecord);
@@ -329,7 +324,7 @@ int addRecord(Record &newRecord) {
         return 0;
     }
 
-    // KROK 6: Obsługa dodania do strony nadmiarowej
+    // KROK 6
     cout << "Tworzenie strony nadmiarowej" << endl;
     
 
@@ -453,5 +448,7 @@ int main(){
 }
 
 
-//na 26.11
-
+//26.11 zrobic dodatkowo ten overflow i poprawnie zeby to sie spinalo wszysztko, DODAJ FUNCKJE SPRAWDZAJACA CZY REKORD MA ODPOWIEDNIE PARAMETRY JAK NIE TO WPISZ PONOWNIE
+//jezeli wszystkie przypadki beda ogarniete to wtedy zrobic reorganizacje
+//dodac usuwanie rekordu jak starczy czasu i bedzie ok dzialalo z reorganizacja i bede wiedzial jak to zrobic
+//zmienic indeksowa strukture na dynamiczna np vector
