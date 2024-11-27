@@ -5,7 +5,7 @@
 #include <ostream>
 using namespace std;
 
-#define COEFFICIENT_OF_BLOCKING 2
+#define COEFFICIENT_OF_BLOCKING 4
 #define ENTRIES 1000
 #define MAX_INDEX_BLOCK_RECORDS 2
 
@@ -13,13 +13,13 @@ string file;
 int totalRecords = 0;
 int totalOverflowRecords = 0;
 float alpha = 0.5;
-int recordCount = 0;
+int recordCount = 0; //zmienic to 
 
 //struktury
-struct Record {
+struct Record { //struktura rekordu gdzie glownym wyznacznikiem po czym sortujemy jest klucz a licensePlate jest tylko dodatkiem
     int key;          
     char licensePlate[9];
-    int overflowPointer = -1; 
+    int overflowPointer = -1; //tutaj ten wskaznik na nadmiar
 };
 
 struct Page{
@@ -31,7 +31,7 @@ struct IndexEntry {
     int pagePointer;
 };
 
-struct Index {
+struct Index { //to odnosi sie do stron glownych raczej nei ma zastosowania do nadmiarowych bo by wymagalo dodatkowego pliku
     int entryCount;
     IndexEntry entries[MAX_INDEX_BLOCK_RECORDS];
 };
@@ -62,16 +62,6 @@ Index createEmptyIndex() {
     return index;
 }
 
-int findIndexEntry(Index &index, int pagePointer) {
-    for (int i = 0; i < index.entryCount; ++i) {
-        if (index.entries[i].pagePointer == pagePointer) {
-            return i; // Zwracamy indeks wpisu w bloku indeksowym
-        }
-    }
-
-    // Jeśli nie znaleziono pasującego wpisu
-    throw runtime_error("Nie znaleziono wpisu w indeksie dla podanej strony.");
-}
 
 Index loadIndex(int blockIndex) {
     string indexFileName = file + "Index.dat";
@@ -152,15 +142,6 @@ void addIndexEntry(Index &index, int key, int pagePointer) {
     index.entryCount++;
 }
 
-int findIndexEntryIndex(Index &index, int pageIndex) {
-    for (int i = 0; i < index.entryCount; ++i) {
-        if (index.entries[i].pagePointer == pageIndex) {
-            return i; // Zwraca indeks odnośnika do strony w bloku indeksowym
-        }
-    }
-    return -1; // Jeśli nie znaleziono, co w praktyce nie powinno się zdarzyć
-}
-
 int savePage(Page &page, int pageNumber){
     string dataFileName = file + ".dat";
     std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out);
@@ -186,36 +167,6 @@ Page createEmptyPage(){
     return page;
 }
 
-int saveOverflowPage(Page &page, int pageNumber){
-    string overflowFileName = file + "Overflow.dat";
-    std::fstream file(overflowFileName, std::ios::binary | std::ios::in | std::ios::out);
-    int pageIndex;
-    if (pageNumber == -1) {
-        file.seekp(0, std::ios::end);
-        pageIndex = file.tellp() / sizeof(Page);  
-    } else {
-        file.seekp(pageNumber * sizeof(Page), std::ios::beg);
-        pageIndex = pageNumber;
-    }
-    file.write(reinterpret_cast<const char *>(&page), sizeof(Page));
-    file.close();
-    return pageIndex;
-}
-
-Record loadRecordFromFile(int currentIndex){
-    string dataFileName = file + ".dat";
-    ifstream file(dataFileName, ios::binary);
-    Record record;
-    file.seekg(currentIndex * sizeof(Record), ios::beg);
-    file.read(reinterpret_cast<char *>(&record), sizeof(Record));
-    file.close();
-    return record;
-}
-
-Record loadOverflowRecord(int currentIndex){
-    return loadRecordFromFile(currentIndex);
-}
-
 Record createDummyRecord(){
     Record dummyRecord;
     dummyRecord.key = -1;
@@ -224,32 +175,6 @@ Record createDummyRecord(){
     dummyRecord.licensePlate[8] = '\0';
     dummyRecord.overflowPointer = -1;
     return dummyRecord;
-}
-
-bool isRecordUnique(int key, Page page){
-    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){//spr dla glownej strony
-        if(page.records[i].key == key){
-            return true;
-        }
-    }
-    //spr dla nadmiarow 
-    int indexTemp = -1;
-    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
-        if(page.records[i].overflowPointer != -1 && page.records[i].overflowPointer != 0){//jezeli bledy to sprawdzic warunek z 0
-            indexTemp = page.records[i].overflowPointer;
-            while(indexTemp != -1){
-                Record overflowRecord = loadOverflowRecord(indexTemp);
-                if(overflowRecord.key == key){
-                    return true;
-                }
-                indexTemp = overflowRecord.overflowPointer;
-            }
-            
-        }
-    }
-    return false;
-    
-
 }
 
 int insertNewRecordOnPage(Page &page, Record &newRecord){
@@ -263,148 +188,81 @@ int insertNewRecordOnPage(Page &page, Record &newRecord){
     }
 }
 
-int findPage(int key, Index &currentIndex, Page &currentPage, int &currentIndexBlock, bool &hasSpaceOnNextPage, bool &betweenPages) {
-    hasSpaceOnNextPage = false;
-    betweenPages = false;
+int findPage(int key) {
+    Index nextIndex;
+    Index currentIndex;
 
-    int lastPagePointer = -1;
-
-    while (true) {
-        // Iteracja przez wpisy w bieżącym bloku indeksowym
+    currentIndex = loadIndex(0);
+    for(int b = 0; b < totalIndexBlocks(); b++){
         for (int i = 0; i < currentIndex.entryCount; ++i) {
-            int currentPagePointer = currentIndex.entries[i].pagePointer;
-
-            // Sprawdź, czy klucz należy do zakresu bieżącego indeksu
-            if (i == currentIndex.entryCount - 1 || key < currentIndex.entries[i + 1].key) {
-                // Lazy load: wczytuj stronę tylko wtedy, gdy to konieczne
-                if (lastPagePointer != currentPagePointer) {
-                    currentPage = loadPage(currentPagePointer);
-                    lastPagePointer = currentPagePointer;
+            if (i == MAX_INDEX_BLOCK_RECORDS-1) {
+                if (b == totalIndexBlocks()-1){
+                    return currentIndex.entries[i].pagePointer;
                 }
-
-                // Sprawdź, czy obecna strona ma miejsce
-                if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
-                    return currentPagePointer;
+                nextIndex = loadIndex(b+1);
+                if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){
+                    return currentIndex.entries[i].pagePointer;                    
                 }
-
-                // Sprawdź, czy klucz należy pomiędzy stronami
-                if (i < currentIndex.entryCount - 1) { //tutaj dodane =
-                    int nextPagePointer = currentIndex.entries[i + 1].pagePointer;
-
-                    // Lazy load: wczytuj następną stronę tylko wtedy, gdy klucz może należeć do jej zakresu
-                    Page nextPage;
-                    if (lastPagePointer != nextPagePointer) {
-                        nextPage = loadPage(nextPagePointer);
-                        lastPagePointer = nextPagePointer;
-                    }
-
-                    if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) {
-                        if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
-                            hasSpaceOnNextPage = true;
-                            currentPage = nextPage;
-                            return nextPagePointer;
-                        } else {
-                            betweenPages = true;
-                            return currentPagePointer;
-                        }
-                    }
+                currentIndex = nextIndex;
+            } 
+            else {
+                if (i == currentIndex.entryCount-1) {
+                    return currentIndex.entries[i].pagePointer;
+                } else if (key >= currentIndex.entries[i].key && key < currentIndex.entries[i+1].key){
+                    return currentIndex.entries[i].pagePointer;                    
                 }
-                //tutaj return w przypadku gdy nie ma miejsca na stronie i nie ma miejsca na nastepnej stronie
-                
-                //return currentPagePointer;
             }
-        }
-
-
-        if (currentIndexBlock < totalIndexBlocks() - 1) {
-            ++currentIndexBlock;
-            currentIndex = loadIndex(currentIndexBlock);
-        } else {
-            // Ostatni wpis w indeksie
-            int currentPagePointer = currentIndex.entries[currentIndex.entryCount - 1].pagePointer;
-
-            // Lazy load: wczytuj stronę tylko wtedy, gdy klucz może należeć do jej zakresu
-            if (lastPagePointer != currentPagePointer) {
-                currentPage = loadPage(currentPagePointer);
-                lastPagePointer = currentPagePointer;
-            }
-            return currentPagePointer;
         }
     }
+    return -1;
 }
 
-int addRecord(Record &newRecord) {
-    int currentIndexBlock = 0;
-    
-    bool indexModified = false;
 
-    // KROK 1: Dodanie pierwszego rekordu i dummy
+int addRecord(Record &newRecord) {
+
+    //Dodanie pierwszego rekordu i rekordu Dummy
     if (totalRecords == 0) {
         Page page = createEmptyPage();
         Record dummyRecord = createDummyRecord();
         page.records[0] = dummyRecord;
         page.records[1] = newRecord;
-        page.records[1].overflowPointer = -1;
         savePage(page, 0);
+
         Index currentIndex = createEmptyIndex();
-        addIndexEntry(currentIndex, newRecord.key, 0);
-        saveIndex(currentIndex, currentIndexBlock);
+        addIndexEntry(currentIndex, dummyRecord.key, 0);
+        saveIndex(currentIndex, 0);
         totalRecords += 2;
         return 0;
     }
-    Index currentIndex = loadIndex(currentIndexBlock);
-    // KROK 2: Znalezienie odpowiedniej strony
-    bool hasSpaceOnNextPage = false;
-    bool betweenPages = false;
-    Page currentPage;
-    int pageIndex = findPage(newRecord.key, currentIndex, currentPage, currentIndexBlock, hasSpaceOnNextPage, betweenPages);
 
-    // KROK 3: Sprawdzenie unikalności
-    if (isRecordUnique(newRecord.key, currentPage)) {
-        cout << "Rekord o podanym kluczu już istnieje!!!" << endl;
-        return 0;
-    }
+    int pageIndex = findPage(newRecord.key);
 
-    // KROK 4: Dodanie rekordu na istniejącą stronę
-    if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
-        insertNewRecordOnPage(currentPage, newRecord);
-        savePage(currentPage, pageIndex);
+    Page page = loadPage(pageIndex);
 
-        // Aktualizacja indeksu, jeśli trzeba
-        int indexEntryIndex = findIndexEntryIndex(currentIndex, pageIndex);
-        if (newRecord.key < currentIndex.entries[indexEntryIndex].key) {
-            currentIndex.entries[indexEntryIndex].key = newRecord.key;
-            saveIndex(currentIndex, currentIndexBlock);
+    for(int i = 0; i < countRecords(page);i++){
+        if(newRecord.key == page.records[i].key){
+            cout << "dsad";
+            return 0;
+        }
+        if(i == countRecords(page)-1){
+            if(i < COEFFICIENT_OF_BLOCKING-1){
+                page.records[i+1] = newRecord;
+                //zapis strony
+                return 0;
+            }
+            else{
+                //albo otwieramy nową strone albo overflow z wartosci ostatniej
+
+            }
         }
 
-        totalRecords++;
-        return 0;
-    }
-
-    // KROK 5: Dodanie nowej strony
-    if (!betweenPages && currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key < newRecord.key) {
-        Page newPage = createEmptyPage();
-        insertNewRecordOnPage(newPage, newRecord);
-        int newPageIndex = savePage(newPage, -1);
-
-        // Dodaj nowy wpis do indeksu
-        if (currentIndex.entryCount < MAX_INDEX_BLOCK_RECORDS) {
-            addIndexEntry(currentIndex, newRecord.key, newPageIndex);
-            saveIndex(currentIndex, currentIndexBlock);
-        } else {
-            Index newIndexBlock = createEmptyIndex();
-            addIndexEntry(newIndexBlock, newRecord.key, newPageIndex);
-            saveIndex(newIndexBlock, ++currentIndexBlock);
-        }
-
-        totalRecords++;
-        return 0;
-    }
-
-    // KROK 6: Dodanie do przepełnienia
-    cout << "Tworzenie strony nadmiarowej..." << endl;
-    //pamietac o dosc newralgicznym momencie gdy strona 0:-1,2,3,4 str 1: 5,6,7,8 |koniec bloku| str 2: 10,11,12,13 i dodajemy 9 to wtedy przeskoczy juz do str 2 i na nią bedzie wskazywal wiec to bedzie moment gdy trzeba to bedzie obsluzyc
-    //wykryjemy to poprzez to ze to jest kolejny blok indeksowy a jego indeks to 0 w tablicy indeksow na danym bloku i wtedy trzeba wczytac poprzedni blok i 
+        else{
+            if(newRecord.key > page.records[i].key && newRecord.key < page.records[i+1].key){
+                //zwracamy mniejszy i obsluga overflow dla i
+            }
+        }        
+    }    
+    
     return 0;
 }
 
@@ -524,5 +382,4 @@ int main(){
 
     return 0;
 }
-
 
