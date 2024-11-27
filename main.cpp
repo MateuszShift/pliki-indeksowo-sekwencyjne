@@ -267,23 +267,36 @@ int findPage(int key, Index &currentIndex, Page &currentPage, int &currentIndexB
     hasSpaceOnNextPage = false;
     betweenPages = false;
 
+    int lastPagePointer = -1;
+
     while (true) {
         // Iteracja przez wpisy w bieżącym bloku indeksowym
         for (int i = 0; i < currentIndex.entryCount; ++i) {
             int currentPagePointer = currentIndex.entries[i].pagePointer;
-            currentPage = loadPage(currentPagePointer);
 
-            // Jeśli to ostatni wpis w bloku lub klucz jest mniejszy od następnego klucza
+            // Sprawdź, czy klucz należy do zakresu bieżącego indeksu
             if (i == currentIndex.entryCount - 1 || key < currentIndex.entries[i + 1].key) {
+                // Lazy load: wczytuj stronę tylko wtedy, gdy to konieczne
+                if (lastPagePointer != currentPagePointer) {
+                    currentPage = loadPage(currentPagePointer);
+                    lastPagePointer = currentPagePointer;
+                }
+
                 // Sprawdź, czy obecna strona ma miejsce
                 if (countRecords(currentPage) < COEFFICIENT_OF_BLOCKING) {
                     return currentPagePointer;
                 }
 
                 // Sprawdź, czy klucz należy pomiędzy stronami
-                if (i < currentIndex.entryCount - 1) {
+                if (i < currentIndex.entryCount - 1) { //tutaj dodane =
                     int nextPagePointer = currentIndex.entries[i + 1].pagePointer;
-                    Page nextPage = loadPage(nextPagePointer);
+
+                    // Lazy load: wczytuj następną stronę tylko wtedy, gdy klucz może należeć do jej zakresu
+                    Page nextPage;
+                    if (lastPagePointer != nextPagePointer) {
+                        nextPage = loadPage(nextPagePointer);
+                        lastPagePointer = nextPagePointer;
+                    }
 
                     if (key > currentPage.records[COEFFICIENT_OF_BLOCKING - 1].key && key < nextPage.records[0].key) {
                         if (countRecords(nextPage) < COEFFICIENT_OF_BLOCKING) {
@@ -296,23 +309,29 @@ int findPage(int key, Index &currentIndex, Page &currentPage, int &currentIndexB
                         }
                     }
                 }
-
+                //tutaj return w przypadku gdy nie ma miejsca na stronie i nie ma miejsca na nastepnej stronie
+                
                 //return currentPagePointer;
             }
         }
 
-        // Jeśli klucz jest większy niż wszystkie w bieżącym bloku indeksowym
+
         if (currentIndexBlock < totalIndexBlocks() - 1) {
             ++currentIndexBlock;
             currentIndex = loadIndex(currentIndexBlock);
         } else {
             // Ostatni wpis w indeksie
-            currentPage = loadPage(currentIndex.entries[currentIndex.entryCount - 1].pagePointer);
-            return currentIndex.entries[currentIndex.entryCount - 1].pagePointer;
+            int currentPagePointer = currentIndex.entries[currentIndex.entryCount - 1].pagePointer;
+
+            // Lazy load: wczytuj stronę tylko wtedy, gdy klucz może należeć do jej zakresu
+            if (lastPagePointer != currentPagePointer) {
+                currentPage = loadPage(currentPagePointer);
+                lastPagePointer = currentPagePointer;
+            }
+            return currentPagePointer;
         }
     }
 }
-
 
 int addRecord(Record &newRecord) {
     int currentIndexBlock = 0;
@@ -507,7 +526,3 @@ int main(){
 }
 
 
-//26.11 zrobic dodatkowo ten overflow i poprawnie zeby to sie spinalo wszysztko, DODAJ FUNCKJE SPRAWDZAJACA CZY REKORD MA ODPOWIEDNIE PARAMETRY JAK NIE TO WPISZ PONOWNIE
-//jezeli wszystkie przypadki beda ogarniete to wtedy zrobic reorganizacje
-//dodac usuwanie rekordu jak starczy czasu i bedzie ok dzialalo z reorganizacja i bede wiedzial jak to zrobic
-//zmienic indeksowa strukture na dynamiczna np vector
