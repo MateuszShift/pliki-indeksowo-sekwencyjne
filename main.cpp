@@ -129,6 +129,22 @@ Page loadPage(int pageNumber){
     return page;
 }
 
+Page loadOverflowPage(int pageNumber){
+    string dataFileName = file + "Overflow.dat";
+    Page page;
+    ifstream file(dataFileName, ios::binary);
+    file.seekg(pageNumber * sizeof(Page), ios::beg); 
+    file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
+    file.close();
+    recordCount = 0;
+    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
+        if(page.records[i].key != 0){
+            recordCount++;
+        }
+    }
+    return page;
+}
+
 int totalIndexBlocks() {
     string indexFileName = file + "Index.dat";
     std::ifstream indexFile(indexFileName, std::ios::binary | std::ios::ate); 
@@ -162,6 +178,24 @@ int savePage(Page &page, int pageNumber){
     } else {
         file.seekp(pageNumber * sizeof(Page), std::ios::beg);
         file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
+        file.close();
+        return pageNumber;
+    }
+}
+
+int saveOverflowPage(Page &overflowPage, int pageNumber){
+    string dataFileName = file + "Overflow.dat";
+    std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out);
+
+    if (pageNumber == -1) {
+        file.seekp(0, std::ios::end);
+        file.write(reinterpret_cast<const char *>(&overflowPage), sizeof(Page)); 
+        int newPageNumber = (file.tellp() / sizeof(Page)) - 1;
+        file.close();
+        return newPageNumber;
+    } else {
+        file.seekp(pageNumber * sizeof(Page), std::ios::beg);
+        file.write(reinterpret_cast<const char *>(&overflowPage), sizeof(Page)); 
         file.close();
         return pageNumber;
     }
@@ -214,6 +248,150 @@ int findPage(int key) {
 }
 
 
+int mergeAndSaveOverflowPage(Page &firstPage, int firstPageIndex, Page &secondPage, int secondPageIndex){
+    if(firstPageIndex != secondPageIndex){
+        saveOverflowPage(firstPage, firstPageIndex);
+        saveOverflowPage(secondPage, secondPageIndex);
+        return 1;
+    }
+    else{
+        int firstCounter = countRecords(firstPage);
+        int secondCounter = countRecords(secondPage);
+
+        if (firstCounter == secondCounter+1)
+        {
+            secondPage.records[firstCounter-1] = firstPage.records[firstCounter-1];
+            saveOverflowPage(secondPage, secondPageIndex);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int mainPageIndex){
+
+    if(totalOverflowRecords == 0){
+        Page overflowPage = createEmptyPage();
+        overflowPage.records[0] = newRecord;
+        mainPageRecord.overflowPointer = 0;
+        savePage(mainPage, mainPageIndex);
+        saveOverflowPage(overflowPage, 0);
+        totalOverflowRecords++;
+        return 0;
+    }
+
+    int overflowPageIndex = (totalOverflowRecords-1)/(COEFFICIENT_OF_BLOCKING);
+    int overflowRecordIndex = (totalOverflowRecords-1)%(COEFFICIENT_OF_BLOCKING); 
+
+    Page overflowPage;
+
+    if(overflowRecordIndex == COEFFICIENT_OF_BLOCKING-1){
+        overflowRecordIndex = 0;
+        overflowPage = createEmptyPage();
+        overflowPage.records[overflowRecordIndex] = newRecord;
+        overflowPageIndex++;
+    }
+    else{
+        overflowRecordIndex++;
+        overflowPage = loadOverflowPage(overflowPageIndex);
+        overflowPage.records[overflowRecordIndex] = newRecord;
+    }
+
+    Record addedRecord = overflowPage.records[overflowRecordIndex];
+
+    int overflowRecordNumber = COEFFICIENT_OF_BLOCKING*overflowPageIndex+overflowRecordIndex;
+
+    if(mainPageRecord.overflowPointer == -1){
+        mainPageRecord.overflowPointer = overflowRecordNumber;
+        savePage(mainPage, mainPageIndex);
+        saveOverflowPage(overflowPage, overflowPageIndex);
+        totalOverflowRecords++;
+        return 0;
+    }
+    else{
+        int prevOvfRecordNumber = mainPageRecord.overflowPointer;
+        int nextOvfRecordNumber = mainPageRecord.overflowPointer;
+        int iteration = 0;
+
+        while(true)
+        {
+            int nextOvfPageIndex = nextOvfRecordNumber/(COEFFICIENT_OF_BLOCKING);
+            int nextOvfRecordIndex = nextOvfRecordNumber%(COEFFICIENT_OF_BLOCKING);
+
+            Page nextOvfPage = loadOverflowPage(nextOvfPageIndex);
+            Record nextOvfRecord = nextOvfPage.records[nextOvfRecordIndex]; 
+
+            if(nextOvfRecord.key == addedRecord.key){
+                //moment kiedy znalezlismy duplikat, wyjscie bez zapisu
+                return 1;
+            }
+            else if (nextOvfRecord.key > addedRecord.key){
+                addedRecord.overflowPointer = COEFFICIENT_OF_BLOCKING*nextOvfPageIndex+nextOvfRecordIndex;
+                if (iteration == 0) 
+                {
+                    // Zmiana przypisania na main page
+                    mainPageRecord.overflowPointer = overflowRecordNumber;
+                    savePage(mainPage,mainPageIndex);
+                    saveOverflowPage(overflowPage, overflowPageIndex);
+                    totalOverflowRecords++;
+                    return 2;
+                }
+                else 
+                {
+                    // Element pomiedzy dwoma na liscie
+                    int prevOvfPageIndex = (prevOvfRecordNumber)/(COEFFICIENT_OF_BLOCKING);
+                    int prevOvfRecordIndex = (prevOvfRecordNumber)%(COEFFICIENT_OF_BLOCKING);
+
+                    if (nextOvfPageIndex != prevOvfPageIndex)
+                    {
+                        Page prevOvfPage = loadOverflowPage(prevOvfPageIndex);
+                        Record prevOvfRecord = prevOvfPage.records[prevOvfRecordIndex]; 
+
+                        addedRecord.overflowPointer = nextOvfRecordNumber;
+                        overflowPage.records[overflowRecordIndex] = addedRecord;
+                        prevOvfRecord.overflowPointer = overflowRecordNumber;   
+                        prevOvfPage.records[prevOvfRecordIndex] = prevOvfRecord;                     
+
+                        saveOverflowPage(prevOvfPage, nextOvfPageIndex);
+                    }
+                    else
+                    {
+                        Record prevOvfRecord = nextOvfPage.records[prevOvfRecordIndex]; 
+
+                        addedRecord.overflowPointer = nextOvfRecordNumber;
+                        overflowPage.records[overflowRecordIndex] = addedRecord;
+                        prevOvfRecord.overflowPointer = overflowRecordNumber;
+                        nextOvfPage.records[prevOvfRecordIndex] = prevOvfRecord;                     
+                    }
+                    mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex);
+                    totalOverflowRecords++;
+                    return 4;
+                }
+            }
+            else
+            {
+                if(nextOvfRecord.overflowPointer == -1) 
+                {
+                    // Ostatni element na liscie
+                    nextOvfRecord.overflowPointer = overflowRecordNumber;
+                    nextOvfPage.records[nextOvfRecordIndex] = nextOvfRecord;
+                    mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex);
+                    totalOverflowRecords++;
+                    return 3;
+                }
+                else 
+                {
+                    prevOvfRecordNumber = nextOvfRecordNumber;
+                    nextOvfRecordNumber = nextOvfRecord.overflowPointer;
+                }
+            }
+            iteration++;
+        }
+    }
+    return 0;
+}
+
+
 int addRecord(Record &newRecord) {
 
     //Dodanie pierwszego rekordu i rekordu Dummy
@@ -249,12 +427,14 @@ int addRecord(Record &newRecord) {
             }
             else{ //jesli nie ma miejsca na stronie
                 cout << "bedziemy dodawac rekord do strony " << pageIndex << "w miejscu nadmiarowym po rekordzie ostatnim " <<  page.records[i].key << endl;    
+                addToOverflow(newRecord, page, page.records[i], pageIndex);
                 return 0;    
             }
         }
         else{ //dodanie rekordu w srodku strony
             if(newRecord.key > page.records[i].key && newRecord.key < page.records[i+1].key){
                 cout << "bedziemy dodawac rekord do strony " << pageIndex << "w miejscu nadmiarowym pomiędzy rekordami " <<  page.records[i].key << " i " << page.records[i+1].key << endl;
+                addToOverflow(newRecord, page, page.records[i], pageIndex);
                 return 0;
             }
         }        
