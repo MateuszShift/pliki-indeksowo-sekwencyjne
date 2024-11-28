@@ -13,13 +13,12 @@ string file;
 int totalRecords = 0;
 int totalOverflowRecords = 0;
 float alpha = 0.5;
-int recordCount = 0; //zmienic to 
-
+int recordCount = 0; 
 //struktury
-struct Record { //struktura rekordu gdzie glownym wyznacznikiem po czym sortujemy jest klucz a licensePlate jest tylko dodatkiem
+struct Record { 
     int key;          
     char licensePlate[9];
-    int overflowPointer = -1; //tutaj ten wskaznik na nadmiar
+    int overflowPointer = -1;
 };
 
 struct Page{
@@ -31,8 +30,8 @@ struct IndexEntry {
     int pagePointer;
 };
 
-struct Index { //to odnosi sie do stron glownych raczej nei ma zastosowania do nadmiarowych bo by wymagalo dodatkowego pliku
-    int entryCount;
+struct Index {
+    //int entryCount;
     IndexEntry entries[MAX_INDEX_BLOCK_RECORDS];
 };
 //wyswietlanie menu
@@ -57,7 +56,7 @@ void choosePath(){
 }
 Index createEmptyIndex() {
     Index index;
-    index.entryCount = 0;
+    //index.entryCount = 0;
     memset(&index.entries, 0, sizeof(index.entries));
     return index;
 }
@@ -75,6 +74,15 @@ Index loadIndex(int blockIndex) {
     return index;
 }
 
+int countIndexEntriesInBlock(Index &index){
+    int count = 0;
+    for (int i = 0; i < MAX_INDEX_BLOCK_RECORDS; ++i) {
+        if (index.entries[i].key != 0) {
+            count++;
+        }
+    }
+    return count;
+}
 
 int saveIndex(Index &index, int blockIndex) {
     string indexFileName = file + "Index.dat";
@@ -123,23 +131,22 @@ Page loadPage(int pageNumber){
 
 int totalIndexBlocks() {
     string indexFileName = file + "Index.dat";
-    std::ifstream indexFile(indexFileName, std::ios::binary | std::ios::ate); // Otwórz plik i przejdź na koniec
+    std::ifstream indexFile(indexFileName, std::ios::binary | std::ios::ate); 
     if (!indexFile.is_open()) {
-        return 0; // Jeśli plik nie istnieje lub nie można go otworzyć
+        return 0;
     }
 
-    std::streamsize fileSize = indexFile.tellg(); // Pobierz rozmiar pliku
+    std::streamsize fileSize = indexFile.tellg();
     indexFile.close();
 
-    // Oblicz liczbę bloków na podstawie rozmiaru pliku i wielkości jednego bloku
     return fileSize / sizeof(Index);
 }
 
 
 void addIndexEntry(Index &index, int key, int pagePointer) {
-    index.entries[index.entryCount].key = key;
-    index.entries[index.entryCount].pagePointer = pagePointer;
-    index.entryCount++;
+    index.entries[countIndexEntriesInBlock(index)].key = key; //tutaj bylo wczesniej index.entryCount
+    index.entries[countIndexEntriesInBlock(index)-1].pagePointer = pagePointer; //tutaj bylo wczesniej index.entryCount
+    //index.entryCount++;
 }
 
 int savePage(Page &page, int pageNumber){
@@ -147,16 +154,16 @@ int savePage(Page &page, int pageNumber){
     std::fstream file(dataFileName, std::ios::binary | std::ios::in | std::ios::out);
 
     if (pageNumber == -1) {
-        file.seekp(0, std::ios::end); // Przesuń wskaźnik na koniec pliku
+        file.seekp(0, std::ios::end);
         file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
-        int newPageNumber = (file.tellp() / sizeof(Page)) - 1; // Oblicz nowy numer strony
+        int newPageNumber = (file.tellp() / sizeof(Page)) - 1;
         file.close();
         return newPageNumber;
     } else {
-        file.seekp(pageNumber * sizeof(Page), std::ios::beg); // Przesuń wskaźnik na konkretną stronę
+        file.seekp(pageNumber * sizeof(Page), std::ios::beg);
         file.write(reinterpret_cast<const char *>(&page), sizeof(Page)); 
         file.close();
-        return pageNumber; // Zwraca istniejący numer strony
+        return pageNumber;
     }
 }
 
@@ -177,38 +184,27 @@ Record createDummyRecord(){
     return dummyRecord;
 }
 
-int insertNewRecordOnPage(Page &page, Record &newRecord){
-    for(int i = COEFFICIENT_OF_BLOCKING - 1; i >= 0; i--){
-        if(i==0 || (newRecord.key > page.records[i-1].key && page.records[i-1].key != 0)){
-            page.records[i] = newRecord;
-            return 0;
-        }else{
-            page.records[i] = page.records[i-1];
-        }
-    }
-}
-
 int findPage(int key) {
     Index nextIndex;
     Index currentIndex;
 
     currentIndex = loadIndex(0);
     for(int b = 0; b < totalIndexBlocks(); b++){
-        for (int i = 0; i < currentIndex.entryCount; ++i) {
-            if (i == MAX_INDEX_BLOCK_RECORDS-1) {
-                if (b == totalIndexBlocks()-1){
+        for (int i = 0; i < countIndexEntriesInBlock(currentIndex); ++i) { //tutaj bylo wczesniej currentIndex.entryCount
+            if (i == MAX_INDEX_BLOCK_RECORDS-1) { //jesli jestesmy na ostatnim rekordzie w bloku
+                if (b == totalIndexBlocks()-1){ //jesli jestesmy na ostatnim bloku
                     return currentIndex.entries[i].pagePointer;
                 }
                 nextIndex = loadIndex(b+1);
-                if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){
+                if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){ //sprawdzenie pomiedzy blokami czy klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym bloku
                     return currentIndex.entries[i].pagePointer;                    
                 }
                 currentIndex = nextIndex;
             } 
             else {
-                if (i == currentIndex.entryCount-1) {
+                if (i == countIndexEntriesInBlock(currentIndex)-1) { //tutaj bylo wczesniej currentIndex.entryCount-1 , jesli jestesmy na ostatnim rekordzie w bloku
                     return currentIndex.entries[i].pagePointer;
-                } else if (key >= currentIndex.entries[i].key && key < currentIndex.entries[i+1].key){
+                } else if (key >= currentIndex.entries[i].key && key < currentIndex.entries[i+1].key){ //jesli klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym rekordzie
                     return currentIndex.entries[i].pagePointer;                    
                 }
             }
@@ -241,24 +237,25 @@ int addRecord(Record &newRecord) {
 
     for(int i = 0; i < countRecords(page);i++){
         if(newRecord.key == page.records[i].key){
-            cout << "dsad";
+            cout << "Taki rekord juz istnieje" << endl;
             return 0;
         }
-        if(i == countRecords(page)-1){
-            if(i < COEFFICIENT_OF_BLOCKING-1){
+        if(i == countRecords(page)-1){ //dodanie rekordu na koniec strony
+            if(i < COEFFICIENT_OF_BLOCKING-1){ //jesli jest miejsce na stronie
                 page.records[i+1] = newRecord;
-                //zapis strony
+                savePage(page, pageIndex);
+                cout << "dodano rekord na koniec strony " << pageIndex << endl;
                 return 0;
             }
-            else{
-                //albo otwieramy nową strone albo overflow z wartosci ostatniej
-
+            else{ //jesli nie ma miejsca na stronie
+                cout << "bedziemy dodawac rekord do strony " << pageIndex << "w miejscu nadmiarowym po rekordzie ostatnim " <<  page.records[i].key << endl;    
+                return 0;    
             }
         }
-
-        else{
+        else{ //dodanie rekordu w srodku strony
             if(newRecord.key > page.records[i].key && newRecord.key < page.records[i+1].key){
-                //zwracamy mniejszy i obsluga overflow dla i
+                cout << "bedziemy dodawac rekord do strony " << pageIndex << "w miejscu nadmiarowym pomiędzy rekordami " <<  page.records[i].key << " i " << page.records[i+1].key << endl;
+                return 0;
             }
         }        
     }    
@@ -276,6 +273,7 @@ int addRecord(Record &newRecord) {
 //wyswietlanie pliku nadmiarowego
 
 //wyswietlanie indeksow
+
 
 
 
@@ -383,3 +381,21 @@ int main(){
     return 0;
 }
 
+//koncepcja dodawania rekordu do części nadmiarowej
+
+
+//1.
+//przechodząc do dodawania jeśli counter rekordow w overflow = 0 to dodajemy nową strone jako pierwszą, 
+//odpowiednio ustawiając wskaźniki dla rekordu w stronie glownej
+
+//2.
+//sprawdzamy czy wskaznik do strony nadmiarowej jest ustawiony na -1 jesli tak to dodajemy rekord do strony nadmiarowej odpowiednio:
+//dodajemy od razu jesli jest miejsce na stronie wskazanej (ilosc rekordow overflow/ COEFFICIENT_OF_BLOCKING to na ktorej stronie ma sie znalezc
+//dodatkowo modulo z tej wartosci jesli = 0) to dodajemy nowa strone, przepisujemy wskaznik i zapisujemy do pliku
+
+//natomiast jezeli wskaznik w stronie glownej nie wskazuje na -1 to przechodzimy do strony nadmiarowej indeksu ktory wskazuje wskaznik w stronie glownej, wczesniej jeszcze
+//znajdujemy strone na ktora dodamy nowy rekord overflow. Jesli jest maks to tworzymy nową, jesli jest miejsce to dodajemy i czekamy na uzupelnienie wskaznika
+//wchodzimy w głąb węzyka wskaznikow, jesli klucz rekordu w overflow na ktory wskazuje jest mniejszy niz nowy rekord to wtedy wchodzimy głębiej (na strone na ktora wskazuje wskaznik)
+//zapamiętując strone poprzednią.
+//jezeli wartosc sprawdzanego klucza overflow jest wieksza niz nowego to przepinamy wskazniki
+//jezeli wartosc jest rowna to znaczy ze jest duplikat i wychodzimy z funkcji ogolnie nie dodajac rekordu
