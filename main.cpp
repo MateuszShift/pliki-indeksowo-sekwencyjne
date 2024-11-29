@@ -6,14 +6,14 @@
 using namespace std;
 
 #define COEFFICIENT_OF_BLOCKING 4
-#define ENTRIES 1000
+//#define ENTRIES 1000
 #define MAX_INDEX_BLOCK_RECORDS 2
 
 string file;
 int totalRecords = 0;
 int totalOverflowRecords = 0;
 float alpha = 0.5;
-int recordCount = 0; 
+//int recordCount = 0; 
 //struktury
 struct Record { 
     int key;          
@@ -120,12 +120,12 @@ Page loadPage(int pageNumber){
     file.seekg(pageNumber * sizeof(Page), ios::beg); 
     file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
     file.close();
-    recordCount = 0;
-    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
-        if(page.records[i].key != 0){
-            recordCount++;
-        }
-    }
+    //recordCount = 0;
+    //for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
+    //    if(page.records[i].key != 0){
+    //        recordCount++;
+    //    }
+    //}
     return page;
 }
 
@@ -136,12 +136,12 @@ Page loadOverflowPage(int pageNumber){
     file.seekg(pageNumber * sizeof(Page), ios::beg); 
     file.read(reinterpret_cast<char *>(&page), sizeof(Page)); 
     file.close();
-    recordCount = 0;
-    for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
-        if(page.records[i].key != 0){
-            recordCount++;
-        }
-    }
+    //recordCount = 0;
+    //for(int i = 0; i < COEFFICIENT_OF_BLOCKING; i++){
+    //    if(page.records[i].key != 0){
+    //        recordCount++;
+    //    }
+    //}
     return page;
 }
 
@@ -270,7 +270,7 @@ int mergeAndSaveOverflowPage(Page &firstPage, int firstPageIndex, Page &secondPa
 
 int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int mainPageIndex){
 
-    if(totalOverflowRecords == 0){
+    if(totalOverflowRecords == 0){ //dodanie pierwszego rekordu do pliku nadmiarowego
         Page overflowPage = createEmptyPage();
         overflowPage.records[0] = newRecord;
         mainPageRecord.overflowPointer = 0;
@@ -280,49 +280,51 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
         return 0;
     }
 
-    int overflowPageIndex = (totalOverflowRecords-1)/(COEFFICIENT_OF_BLOCKING);
-    int overflowRecordIndex = (totalOverflowRecords-1)%(COEFFICIENT_OF_BLOCKING); 
+    int overflowPageIndex = (totalOverflowRecords-1)/(COEFFICIENT_OF_BLOCKING); //indeks strony w pliku nadmiarowym
+    int overflowRecordIndex = (totalOverflowRecords-1)%(COEFFICIENT_OF_BLOCKING); //indeks rekordu na stronie w pliku nadmiarowym
 
     Page overflowPage;
 
-    if(overflowRecordIndex == COEFFICIENT_OF_BLOCKING-1){
+    if(overflowRecordIndex == COEFFICIENT_OF_BLOCKING-1){ //jesli nie ma miejsca na stronie to tworzymy nowa
         overflowRecordIndex = 0;
         overflowPage = createEmptyPage();
         overflowPage.records[overflowRecordIndex] = newRecord;
         overflowPageIndex++;
     }
-    else{
+    else{ //jesli nie ostatni rekord na stronie
         overflowRecordIndex++;
         overflowPage = loadOverflowPage(overflowPageIndex);
         overflowPage.records[overflowRecordIndex] = newRecord;
     }
 
-    Record addedRecord = overflowPage.records[overflowRecordIndex];
+    Record addedRecord = overflowPage.records[overflowRecordIndex]; 
 
-    int overflowRecordNumber = COEFFICIENT_OF_BLOCKING*overflowPageIndex+overflowRecordIndex;
+    int overflowRecordNumber = COEFFICIENT_OF_BLOCKING*overflowPageIndex+overflowRecordIndex; //numer rekordu w pliku nadmiarowym
 
-    if(mainPageRecord.overflowPointer == -1){
+    if(mainPageRecord.overflowPointer == -1){ //jesli nie ma wskaznika na rekord w pliku nadmiarowym
         mainPageRecord.overflowPointer = overflowRecordNumber;
         savePage(mainPage, mainPageIndex);
         saveOverflowPage(overflowPage, overflowPageIndex);
         totalOverflowRecords++;
+        totalRecords++;
         return 0;
     }
-    else{
-        int prevOvfRecordNumber = mainPageRecord.overflowPointer;
+    else{ //jesli jest wskaznik na rekord w pliku nadmiarowym
+        int prevOvfRecordNumber = mainPageRecord.overflowPointer; 
         int nextOvfRecordNumber = mainPageRecord.overflowPointer;
         int iteration = 0;
 
         while(true)
         {
-            int nextOvfPageIndex = nextOvfRecordNumber/(COEFFICIENT_OF_BLOCKING);
-            int nextOvfRecordIndex = nextOvfRecordNumber%(COEFFICIENT_OF_BLOCKING);
+            int nextOvfPageIndex = nextOvfRecordNumber/(COEFFICIENT_OF_BLOCKING); //indeks strony w pliku nadmiarowym
+            int nextOvfRecordIndex = nextOvfRecordNumber%(COEFFICIENT_OF_BLOCKING); //indeks rekordu na stronie w pliku nadmiarowym
 
             Page nextOvfPage = loadOverflowPage(nextOvfPageIndex);
             Record nextOvfRecord = nextOvfPage.records[nextOvfRecordIndex]; 
 
             if(nextOvfRecord.key == addedRecord.key){
                 //moment kiedy znalezlismy duplikat, wyjscie bez zapisu
+                cout << "Taki rekord juz istnieje!! Nie dodano ponownie!" << endl;
                 return 1;
             }
             else if (nextOvfRecord.key > addedRecord.key){
@@ -331,9 +333,13 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                 {
                     // Zmiana przypisania na main page
                     mainPageRecord.overflowPointer = overflowRecordNumber;
+                    //zmiana przypisania overflowPointer na overflow page
+                    //nextOvfRecord.overflowPointer = nextOvfRecordNumber;
+                    overflowPage.records[overflowRecordIndex] = addedRecord;
                     savePage(mainPage,mainPageIndex);
                     saveOverflowPage(overflowPage, overflowPageIndex);
                     totalOverflowRecords++;
+                    totalRecords++;
                     return 2;
                 }
                 else 
@@ -342,7 +348,7 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                     int prevOvfPageIndex = (prevOvfRecordNumber)/(COEFFICIENT_OF_BLOCKING);
                     int prevOvfRecordIndex = (prevOvfRecordNumber)%(COEFFICIENT_OF_BLOCKING);
 
-                    if (nextOvfPageIndex != prevOvfPageIndex)
+                    if (nextOvfPageIndex != prevOvfPageIndex) //tutaj dostaniemy sie gdy rekordy sa na roznych stronach
                     {
                         Page prevOvfPage = loadOverflowPage(prevOvfPageIndex);
                         Record prevOvfRecord = prevOvfPage.records[prevOvfRecordIndex]; 
@@ -352,9 +358,9 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                         prevOvfRecord.overflowPointer = overflowRecordNumber;   
                         prevOvfPage.records[prevOvfRecordIndex] = prevOvfRecord;                     
 
-                        saveOverflowPage(prevOvfPage, nextOvfPageIndex);
+                        saveOverflowPage(prevOvfPage, prevOvfPageIndex);
                     }
-                    else
+                    else //tutaj dostaniemy sie gdy rekordy sa na tej samej stronie
                     {
                         Record prevOvfRecord = nextOvfPage.records[prevOvfRecordIndex]; 
 
@@ -365,6 +371,7 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                     }
                     mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex);
                     totalOverflowRecords++;
+                    totalRecords++;
                     return 4;
                 }
             }
@@ -373,10 +380,11 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                 if(nextOvfRecord.overflowPointer == -1) 
                 {
                     // Ostatni element na liscie
-                    nextOvfRecord.overflowPointer = overflowRecordNumber;
+                    nextOvfRecord.overflowPointer = overflowRecordNumber; //ustawienie wskaznika na nowy rekord (dokladniej jego indeks w pliku overflow)
                     nextOvfPage.records[nextOvfRecordIndex] = nextOvfRecord;
                     mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex);
                     totalOverflowRecords++;
+                    totalRecords++;
                     return 3;
                 }
                 else 
@@ -474,11 +482,15 @@ void createFiles(){
 int manageProgramInput(int choice){ //tutaj dopisac obsluge wyboru w sensei tworzenie plikow albo odpowiednie parsowanie pliku testowego 
     
     if(choice == 1){
+
+
         cout << "Podaj nazwe pliku: ";
         cin >> file;
         createFiles();
 
+        //jeszcze dodac odczyt z jednego pliku spreparowanego
         //wczytaj dane z pliku testowego
+        //przejsc do mozliwosci dodawania itp.
 
         return 1;
     }else if(choice == 2){
@@ -560,22 +572,3 @@ int main(){
 
     return 0;
 }
-
-//koncepcja dodawania rekordu do części nadmiarowej
-
-
-//1.
-//przechodząc do dodawania jeśli counter rekordow w overflow = 0 to dodajemy nową strone jako pierwszą, 
-//odpowiednio ustawiając wskaźniki dla rekordu w stronie glownej
-
-//2.
-//sprawdzamy czy wskaznik do strony nadmiarowej jest ustawiony na -1 jesli tak to dodajemy rekord do strony nadmiarowej odpowiednio:
-//dodajemy od razu jesli jest miejsce na stronie wskazanej (ilosc rekordow overflow/ COEFFICIENT_OF_BLOCKING to na ktorej stronie ma sie znalezc
-//dodatkowo modulo z tej wartosci jesli = 0) to dodajemy nowa strone, przepisujemy wskaznik i zapisujemy do pliku
-
-//natomiast jezeli wskaznik w stronie glownej nie wskazuje na -1 to przechodzimy do strony nadmiarowej indeksu ktory wskazuje wskaznik w stronie glownej, wczesniej jeszcze
-//znajdujemy strone na ktora dodamy nowy rekord overflow. Jesli jest maks to tworzymy nową, jesli jest miejsce to dodajemy i czekamy na uzupelnienie wskaznika
-//wchodzimy w głąb węzyka wskaznikow, jesli klucz rekordu w overflow na ktory wskazuje jest mniejszy niz nowy rekord to wtedy wchodzimy głębiej (na strone na ktora wskazuje wskaznik)
-//zapamiętując strone poprzednią.
-//jezeli wartosc sprawdzanego klucza overflow jest wieksza niz nowego to przepinamy wskazniki
-//jezeli wartosc jest rowna to znaczy ze jest duplikat i wychodzimy z funkcji ogolnie nie dodajac rekordu
