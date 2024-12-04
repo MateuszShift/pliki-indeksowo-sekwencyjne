@@ -17,6 +17,9 @@ float beta = 0.95; //to do zmiany (wspolczynnik ilosci rekordow w pliku nadmiaro
 int totalReads = 0;
 int totalWrites = 0;
 
+int totalReorganiseReads = 0;
+int totalReorganiseWrites = 0;
+int totalReorganisationsCounter = 0;
 struct Record { 
     int key;          
     char licensePlate[9];
@@ -128,7 +131,7 @@ Page loadPage(int pageNumber, string &fileName){
 }
 
 static int buffNumber = -1;
-//sprawdzic czy wywolania tej funkcji są wszedzie ustawione na zliczanie odczytow
+
 Page loadOverflowPage(int pageNumber, int count, string &fileName){
     static Page pageBuff; 
     Page page;
@@ -214,7 +217,7 @@ int findPage(int key) {
                 if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){ //sprawdzenie pomiedzy blokami czy klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym bloku
                     return currentIndex.entries[i].pagePointer;                    
                 }
-                currentIndex = nextIndex; //to przepisanie powoduje 
+                currentIndex = nextIndex; //to przepisanie powoduje ze w nastepnej iteracji petli for bedziemy mieli nextIndex jako currentIndex
             } 
             else {
                 if (i == countIndexEntriesInBlock(currentIndex)-1) { //jesli jestesmy na ostatnim rekordzie w bloku
@@ -682,7 +685,13 @@ int addRecord(Record &newRecord) {
             else{ //jesli nie ma miejsca na stronie 
                 addToOverflow(newRecord, page, page.records[i], pageIndex);
                 if(totalOverflowRecords >= beta*totalMainRecords){
+                    //totalReads = 0;
+                    //totalWrites = 0;
                     reorganise(file); //to przywrococ pozniej
+                    //totalReorganiseReads += totalReads;
+                    //totalReorganiseWrites += totalWrites;
+                    //totalReorganisationsCounter++;
+                    //cout << "Reorganizacja: " << totalReads << " odczytow, " << totalWrites << " zapisow" << endl;
                 }
                 return 0;    
             }
@@ -691,7 +700,13 @@ int addRecord(Record &newRecord) {
             if(newRecord.key > page.records[i].key && newRecord.key < page.records[i+1].key){
                 addToOverflow(newRecord, page, page.records[i], pageIndex);
                 if(totalOverflowRecords >= beta*totalMainRecords){
+                    //totalReads = 0;
+                    //totalWrites = 0;
                     reorganise(file);
+                    //totalReorganiseReads += totalReads;
+                    //totalReorganiseWrites += totalWrites;
+                    //totalReorganisationsCounter++;
+                    //cout << "Reorganizacja: " << totalReads << " odczytow, " << totalWrites << " zapisow" << endl;
                 }
                 return 0;
             }
@@ -705,7 +720,7 @@ void readRecords(const std::string& filename) {
     char operation;
     Record record;
     int recordIndex = 1;
-
+    totalReorganisationsCounter = 0;
     while (true) {
         if (!inFile.read(reinterpret_cast<char*>(&operation), sizeof(operation))) {
             break;
@@ -723,9 +738,13 @@ void readRecords(const std::string& filename) {
     }
     inFile.close();
 
-    cout << "Łączna liczba zapisów: " << totalWrites << endl;
-    cout << "Łączna liczba odczytów: " << totalReads << endl;
-    cout << "Dla parametrów: alpha = " << alpha << ", beta = " << beta << endl;
+    //cout << "Łączna liczba zapisów: " << totalWrites << endl;
+    //cout << "Łączna liczba odczytów: " << totalReads << endl;
+    //cout << "Dla parametrów: alpha = " << alpha << ", beta = " << beta << endl;
+
+    //cout << "łączna liczba zapisow podczas reorganizacji: " << totalReorganiseWrites << endl;
+    //cout << "łączna liczba odczytow podczas reorganizacji: " << totalReorganiseReads << endl;
+    //cout << "łączna liczba reorganizacji: " << totalReorganisationsCounter << endl;
 }
 
 void generateRandomRecords(int amount, string &fileName) {
@@ -872,8 +891,8 @@ void manageChoice(){
                 totalWrites = 0;
                 cout << "Podaj klucz rekordu do wyszukania: ";
                 cin >> searchedKey;
-                if(searchedKey < 0){
-                    cout << "Klucz nie moze byc mniejszy niz 0" << endl;
+                if(searchedKey <= 0){
+                    cout << "Klucz nie moze byc mniejszy niz 1" << endl;
                     break;
                 }
                 findRecordByKey(searchedKey);
@@ -932,5 +951,3 @@ int main(){
 
     return 0;
 }
-
-//puscic na roznych parametrach i zobaczyc jak sie zachowuje zliczajac odczyty i zapisy
