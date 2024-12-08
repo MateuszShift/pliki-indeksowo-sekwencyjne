@@ -135,8 +135,7 @@ static int buffNumber = -1;
 Page loadOverflowPage(int pageNumber, int count, string &fileName){
     static Page pageBuff; 
     Page page;
-    if (buffNumber != pageNumber)
-    {
+    if (buffNumber != pageNumber){
         buffNumber = pageNumber;
         string dataFileName = fileName + "Overflow.dat";
         ifstream overflowFile(dataFileName, ios::binary);
@@ -209,20 +208,20 @@ int findPage(int key) {
     currentIndex = loadIndex(0,file);
     for(int b = 0; b < totalIndexBlocks(file); b++){
         for (int i = 0; i < countIndexEntriesInBlock(currentIndex); ++i) {
-            if (i == MAX_INDEX_BLOCK_RECORDS-1) { //jesli jestesmy na ostatnim rekordzie w bloku
-                if (b == totalIndexBlocks(file)-1){ //jesli jestesmy na ostatnim bloku
+            if (i == MAX_INDEX_BLOCK_RECORDS-1) { //ostatni rekord w bloku
+                if (b == totalIndexBlocks(file)-1){ //na ostatnim bloku to zwracamy ostatni wskaznik
                     return currentIndex.entries[i].pagePointer;
                 }
                 nextIndex = loadIndex(b+1, file);
-                if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){ //sprawdzenie pomiedzy blokami czy klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym bloku
+                if (key >= currentIndex.entries[i].key && key < nextIndex.entries[0].key){ //sprawdzenie pomiedzy blokami 
                     return currentIndex.entries[i].pagePointer;                    
                 }
-                currentIndex = nextIndex; //to przepisanie powoduje ze w nastepnej iteracji petli for bedziemy mieli nextIndex jako currentIndex
+                currentIndex = nextIndex; //przepisanie
             } 
-            else {
-                if (i == countIndexEntriesInBlock(currentIndex)-1) { //jesli jestesmy na ostatnim rekordzie w bloku
+            else {//jesli nie jestesmy na ostatnim rekordzie w bloku
+                if (i == countIndexEntriesInBlock(currentIndex)-1) { //jestesmy na ostatnim rekordzie w bloku
                     return currentIndex.entries[i].pagePointer;
-                } else if (key >= currentIndex.entries[i].key && key < currentIndex.entries[i+1].key){ //jesli klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym rekordzie
+                } else if (key >= currentIndex.entries[i].key && key < currentIndex.entries[i+1].key){ //klucz jest wiekszy niz klucz w obecnym rekordzie i mniejszy niz klucz w nastepnym rekordzie
                     return currentIndex.entries[i].pagePointer;                    
                 }
             }
@@ -232,20 +231,19 @@ int findPage(int key) {
 }
 
 int mergeAndSaveOverflowPage(Page &firstPage, int firstPageIndex, Page &secondPage, int secondPageIndex){
-    if(firstPageIndex != secondPageIndex){
+    if(firstPageIndex != secondPageIndex){ //jesli mamy zmiany w wiecej niz jednym miejscu
         saveOverflowPage(firstPage, firstPageIndex, file);
         saveOverflowPage(secondPage, secondPageIndex, file);
-        return 1;
+        return 0;
     }
     else{
         int firstCounter = countRecords(firstPage);
         int secondCounter = countRecords(secondPage);
 
-        if (firstCounter == secondCounter+1)
-        {
+        if (firstCounter == secondCounter+1){
             secondPage.records[firstCounter-1] = firstPage.records[firstCounter-1]; 
             saveOverflowPage(secondPage, secondPageIndex, file);
-            return 1;
+            return 0;
         }
     }
     return 0;
@@ -416,6 +414,7 @@ void showAllData(string &fileName){
     overflowFile.close();
 }
 
+//dane do reorg
 static Index newIndexPage;
 static int newIndexPageNum = 0;
 static Page newDataPage;
@@ -481,9 +480,9 @@ void reorganise(string &fileName){
     Page page;
     string tempFileName = fileName + "Temp";
 
-    for(int i = 0; i < countNumberOfMainPages(fileName); i++){
+    for(int i = 0; i < countNumberOfMainPages(fileName); i++){ //petla obslugujaca strony w pliku glownym
         page = loadPage(i, fileName);
-        for(int j = 0; j < COEFFICIENT_OF_BLOCKING; j++){
+        for(int j = 0; j < COEFFICIENT_OF_BLOCKING; j++){ //dla kazdej strony
             if(page.records[j].key !=0){
                 addRecordToPage(page.records[j], tempFileName);
                 if(page.records[j].overflowPointer !=-1){
@@ -573,10 +572,9 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
         int nextOvfRecordNumber = mainPageRecord.overflowPointer;
         int iteration = 0;
 
-        while(true)
-        {
-            int nextOvfPageIndex = nextOvfRecordNumber/(COEFFICIENT_OF_BLOCKING); //indeks strony w pliku nadmiarowym
-            int nextOvfRecordIndex = nextOvfRecordNumber%(COEFFICIENT_OF_BLOCKING); //indeks rekordu na stronie w pliku nadmiarowym
+        while(true){
+            int nextOvfPageIndex = nextOvfRecordNumber/(COEFFICIENT_OF_BLOCKING); //indeks strony w pliku nadmiarowym dla nastepnego rekordu
+            int nextOvfRecordIndex = nextOvfRecordNumber%(COEFFICIENT_OF_BLOCKING); //indeks rekordu na stronie w pliku nadmiarowym dla nastepnego rekordu
             
             Page nextOvfPage = loadOverflowPage(nextOvfPageIndex,1, file);//to ogarniete buforem w funkcji loadOverflowPage
             Record nextOvfRecord = nextOvfPage.records[nextOvfRecordIndex]; 
@@ -586,7 +584,7 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                 return 0;
             }
             else if (nextOvfRecord.key > addedRecord.key){ //jesli rekord jest wiekszy niz dodawany
-                addedRecord.overflowPointer = COEFFICIENT_OF_BLOCKING*nextOvfPageIndex+nextOvfRecordIndex;
+                addedRecord.overflowPointer = COEFFICIENT_OF_BLOCKING*nextOvfPageIndex+nextOvfRecordIndex; 
                 if (iteration == 0){ //jesli dodajemy rekord na poczatek listy
                     mainPageRecord.overflowPointer = overflowRecordNumber;
                     overflowPage.records[overflowRecordIndex] = addedRecord;
@@ -599,7 +597,7 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                 else{//rekord pomiedzy dwoma na liscie
                     int prevOvfPageIndex = (prevOvfRecordNumber)/(COEFFICIENT_OF_BLOCKING);
                     int prevOvfRecordIndex = (prevOvfRecordNumber)%(COEFFICIENT_OF_BLOCKING);
-                    if (nextOvfPageIndex != prevOvfPageIndex){ //tutaj dostaniemy sie gdy rekordy sa na roznych stronach
+                    if (nextOvfPageIndex != prevOvfPageIndex){ //rekordy sa na roznych stronach
                         Page prevOvfPage = loadOverflowPage(prevOvfPageIndex,1, file);
                         Record prevOvfRecord = prevOvfPage.records[prevOvfRecordIndex]; 
                         if(prevOvfPageIndex == overflowPageIndex){ //jesli rekordy sa na tej samej stronie
@@ -616,15 +614,14 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                         saveOverflowPage(prevOvfPage, prevOvfPageIndex, file); //zapisanie strony z poprzednim rekordem
                         }
                     }
-                    else //tutaj dostaniemy sie gdy rekordy sa na tej samej stronie
-                    {
+                    else{ //rekordy sa na tej samej stronie
                         Record prevOvfRecord = nextOvfPage.records[prevOvfRecordIndex]; 
                         addedRecord.overflowPointer = nextOvfRecordNumber;
                         overflowPage.records[overflowRecordIndex] = addedRecord;
                         prevOvfRecord.overflowPointer = overflowRecordNumber;
                         nextOvfPage.records[prevOvfRecordIndex] = prevOvfRecord;                     
                     }
-                    mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex);
+                    mergeAndSaveOverflowPage(overflowPage, overflowPageIndex, nextOvfPage, nextOvfPageIndex); 
                     totalOverflowRecords++;
                     totalRecords++;
                     return 0;
@@ -639,7 +636,7 @@ int addToOverflow(Record &newRecord, Page &mainPage, Record &mainPageRecord, int
                     totalRecords++;
                     return 0;
                 }
-                else{ //jesli nie jest to ostatni element na liscie to przechodzimy do nastepnego
+                else{ //jesli nie jest jeszcze miejsce do wstawienia rekordu to przechodzimy do nastepnego
                     prevOvfRecordNumber = nextOvfRecordNumber;
                     nextOvfRecordNumber = nextOvfRecord.overflowPointer;
                 }
@@ -927,8 +924,11 @@ void manageChoice(){
                 cout << "ilosc odczytow: " << totalReads << " ilosc zapisow: " << totalWrites << endl;
                 break;
             case 7:
+                totalReads = 0;
+                totalWrites = 0;
                 cout << "Tak wygląda plik nadmiarowy: " << endl;
                 showOverflowFile(file);
+                cout << "ilosc odczytow: " << totalReads << " ilosc zapisow: " << totalWrites << endl;
                 break;
             case 8:
                 break;
